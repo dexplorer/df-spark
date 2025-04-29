@@ -1,14 +1,14 @@
 # df-spark
 
-This repository contains configuration to spin up a spark standalone cluster using docker containers.
+This repository contains configuration to spin up a spark standalone cluster using docker containers. The cluster will have the following containers.
 
-Postgres DB for Hive Metastore
-Hive Metastore
-Spark Master Node
-Spark Worker Node
-Spark History Server
-Spark Connect Server
-Firefox Browser
+* Postgres DB for Hive Metastore
+* Hive Metastore
+* Spark Master Node
+* Spark Worker Node
+* Spark History Server
+* Spark Connect Server
+* Firefox Browser
 
 ### Spin up Spark Cluster using Docker Containers
 ```

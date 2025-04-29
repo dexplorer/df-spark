@@ -1,0 +1,176 @@
+services:
+  postgres:
+    networks:
+      - dfnet
+    image: postgres:16
+    container_name: postgres
+    hostname: postgres
+    # user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    ports:
+      - "5432:5432"  # PostgreSQL default port
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=md5
+      - POSTGRES_DB=hive_metastore
+      - POSTGRES_USER=hive
+      - POSTGRES_PASSWORD=hivepass123
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - type: bind
+        source: /nas/catalog/postgres-data
+        target: /var/lib/postgresql/data
+      # - type: bind # needed for docker to find the user
+      #   source: /etc/passwd
+      #   target: /etc/passwd
+      #   read_only: true 
+
+  hive-metastore:
+    image: apache/hive:4.0.0-alpha-2
+    container_name: hive-metastore
+    hostname: hive-metastore
+    ports:
+      - "9083:9083"
+    networks:
+      - dfnet
+    # user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    environment:
+      - SERVICE_NAME=metastore # service name internal to apache/hive image
+      - DB_DRIVER=postgres
+      - SERVICE_OPTS=-Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/hive_metastore -Djavax.jdo.option.ConnectionUserName=hive -Djavax.jdo.option.ConnectionPassword=hivepass123
+      # - HIVE_METASTORE_URI=thrift://hive_metastore:9083 # Metastore URI
+    # volumes:
+      # - type: bind
+      #   source: /nas/datalake/user/spark/warehouse
+      #   target: /nas/datalake/user/spark/warehouse
+    depends_on:
+      - postgres
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: df-spark
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "7077:7077"  # Spark Master Communication
+      - "8080:8080"  # Spark UI
+    networks:
+      - dfnet
+    user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    volumes:
+      # - type: bind
+      #   source: /nas/data
+      #   target: /nas/data
+      # - type: bind
+      #   source: /nas/datalake/user/spark/warehouse
+      #   target: /nas/datalake/user/spark/warehouse
+      - type: volume
+        source: spark-logs
+        target: /opt/spark/spark-events
+    env_file:
+      - .env.spark
+    entrypoint: ['./entrypoint.sh', 'master']
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      - hive-metastore
+
+  spark-worker:
+    image: df-spark
+    container_name: spark-worker
+    hostname: spark-worker
+    ports:
+      - '8081:8081'
+    networks:
+      - dfnet
+    user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    volumes:
+      - type: bind
+        source: /nas/data
+        target: /nas/data
+      - type: bind
+        source: /nas/datalake/user/spark/warehouse
+        target: /nas/datalake/user/spark/warehouse
+      - type: volume
+        source: spark-logs
+        target: /opt/spark/spark-events
+    env_file:
+      - .env.spark
+    entrypoint: ['./entrypoint.sh', 'worker']
+    depends_on:
+      - spark-master
+
+  spark-history-server:
+    image: df-spark
+    container_name: spark-history-server
+    hostname: spark-history-server
+    ports:
+      - '18080:18080'
+    networks:
+      - dfnet
+    user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    volumes:
+      - spark-logs:/opt/spark/spark-events
+      - /nas/spark/local:/opt/spark/local
+    env_file:
+      - .env.spark
+    entrypoint: ['./entrypoint.sh', 'history']
+    depends_on:
+      - spark-master
+      - spark-worker # just to order the ip
+
+  spark-connect:
+    image: df-spark
+    container_name: spark-connect
+    hostname: spark-connect
+    ports:
+      # - '15000:15000'
+      # - '15001:15001'
+      - '15002:15002'
+    networks:
+      - dfnet
+    user: ${APP_INFRA_USER_NAME}:${APP_INFRA_USER_GROUP_NAME}
+    # environment:
+    #   - HIVE_METASTORE_URI=thrift://hive_metastore:9083 # Metastore URI
+    volumes:
+      - type: bind
+        source: /nas/datalake/user/spark/warehouse
+        target: /nas/datalake/user/spark/warehouse
+      - type: bind  # spark-connect needs to access the inbound datasets in dq service
+        source: /nas/data/in
+        target: /nas/data/in
+      - type: volume
+        source: spark-logs
+        target: /opt/spark/spark-events
+    env_file:
+      - .env.spark
+    entrypoint: ['./entrypoint.sh', 'connect']
+    depends_on:
+      - spark-master
+      - spark-worker
+      - spark-history-server # just to order the ip
+
+  firefox:
+    image: jlesage/firefox
+    container_name: firefox
+    hostname: firefox
+    ports:
+      - 5800:5800
+    networks:
+      - dfnet
+    depends_on:
+      - postgres
+      - hive-metastore
+      - spark-master
+      - spark-worker
+      - spark-connect
+      - spark-history-server
+      
+volumes:
+  spark-logs:
+
+networks:
+  dfnet:

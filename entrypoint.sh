@@ -24,7 +24,11 @@ then
   WORKER_PORT=${2:-8081}
   echo "$WORKER_PORT"
 
-  start-worker.sh spark://spark-master:7077 --webui-port $WORKER_PORT
+  start-worker.sh spark://spark-master:7077 \
+  --webui-port $WORKER_PORT \
+  --cores 1 \
+  --memory 3G
+  
 elif [ "$SPARK_WORKLOAD" == "history" ]
 then
   start-history-server.sh
